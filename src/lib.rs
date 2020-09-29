@@ -1,7 +1,7 @@
 // + SkewTableau
 
 use std::fmt;
-use std::cmp::{PartialEq, PartialOrd, Ordering};
+use std::cmp::{PartialEq, PartialOrd};
 use std::ops::{Mul};
 
 mod tools;
@@ -517,18 +517,6 @@ fn sliding() {
 		vec![Some(42)],
 	]));
 }
-#[test]
-fn place_and_pop() {
-	let mut tableau = SkewTableau::from(vec![
-        vec![Some(1), Some(2), Some(3)],
-        vec![Some(2), Some(3)],
-        vec![Some(4)],
-	]);
-	tableau.pop_at(2);
-	// println!("{}", tableau);
-	tableau.pop_at(1);
-	// println!("{}", tableau);
-}
 
 impl Mul for SkewTableau {
 	type Output = Self;
@@ -669,9 +657,9 @@ fn mul_equivalence() {
 	assert_eq!((lhs.clone() * rhs.clone()).to_tableau(), lhs.to_tableau() * rhs.to_tableau());
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Clone)]
 struct Pair<T : PartialEq + Ord>(T, T);
-impl<T : PartialEq + Ord> PartialOrd for Pair<T> {
+/* impl<T : PartialEq + Ord> PartialOrd for Pair<T> {
 	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
 		if self.0 < other.0 {
 			Some(Ordering::Less)
@@ -692,6 +680,12 @@ impl<T : PartialEq + Ord> Ord for Pair<T> {
 	fn cmp(&self, other: &Self) -> Ordering {
         self.partial_cmp(other).unwrap()
     }
+} */
+#[test]
+fn pair_order() {
+	assert!(Pair(1, 2) < Pair(2, 1));
+	assert!(Pair(2, 1) < Pair(2, 2));
+	assert!(Pair(2, 2) == Pair(2, 2));
 }
 impl<T : PartialEq + Ord> Pair<T> {
 	pub fn from((index, value) : (T, T)) -> Pair<T> {
@@ -703,20 +697,16 @@ impl<T : PartialEq + Ord> Pair<T> {
 	}
 }
 
-#[derive(Debug, Eq, Clone, Hash)]
+#[derive(Debug, Eq, Clone)]
 pub struct TwoRowedArray(Vec<Pair<usize>>);
 impl TwoRowedArray {
-	fn from(v : Vec<Pair<usize>>) -> TwoRowedArray {
-		TwoRowedArray(v.into_iter().collect())
-	}
-
 	pub fn from_pairs(v : Vec<(usize, usize)>) -> TwoRowedArray {
-		TwoRowedArray::from(v.into_iter().map(Pair::from).collect())
+		TwoRowedArray(v.into_iter().map(Pair::from).collect())
 	}
 
 	pub fn from_two_arrays(index_vec : Vec<usize>, value_vec : Vec<usize>) -> TwoRowedArray {
 		if index_vec.len() != value_vec.len() {
-			panic!("they cannot make up an two rowed array")
+			panic!("they cannot make up to an two rowed array")
 		}
 		TwoRowedArray::from_pairs(index_vec.into_iter().zip(value_vec.into_iter()).collect())
 	}
@@ -741,18 +731,26 @@ impl TwoRowedArray {
 
 	/// for the permutations, it is just the inverse
 	pub fn inverse(self) -> TwoRowedArray {
-		TwoRowedArray::from(self.0.into_iter().map(Pair::rev).collect())
+		TwoRowedArray(self.0.into_iter().map(Pair::rev).collect())
 	}
 
 	// pub fn push(&mut self, (index, value) : (usize, usize)) {
 	// 	self.0.push(Pair::from((index, value)));
 	// }
 }
+impl PartialEq for TwoRowedArray {
+	fn eq(&self, other: &Self) -> bool {
+        &self.lexicographic_ordered().0 == &other.lexicographic_ordered().0
+    }
+}
 #[test]
 fn from_two_arrays() {
-	assert_eq!(TwoRowedArray::from_two_arrays(vec![1,2,3,4,2,4,4,2], vec![3,4,2,5,4,2,3,2]), TwoRowedArray::from_pairs(
-		vec![(1, 3),(2, 4),(3, 2),(4, 5),(2, 4),(4, 2),(4, 3),(2, 2)],
-	));
+	assert_eq!(
+		TwoRowedArray::from_two_arrays(vec![1,2,3,4,2,4,4,2], vec![3,4,2,5,4,2,3,2]),
+		TwoRowedArray::from_pairs(
+			vec![(1, 3),(2, 4),(3, 2),(4, 5),(2, 4),(4, 2),(4, 3),(2, 2)],
+		)
+	);
 }
 #[test]
 fn sort() {
@@ -761,12 +759,6 @@ fn sort() {
 		vec![1,2,2,2,3,4,4,4],
 		vec![3,2,4,4,2,2,3,5]
 	));
-}
-
-impl PartialEq for TwoRowedArray {
-	fn eq(&self, other: &Self) -> bool {
-        self.lexicographic_ordered() == other.lexicographic_ordered()
-    }
 }
 
 impl fmt::Display for TwoRowedArray {
@@ -782,13 +774,13 @@ fn print_array() {
 	let array = TwoRowedArray::from_two_arrays(vec![1,2,3,4,2,4,4,2], vec![3,4,2,5,4,2,3,2]);
 	assert_eq!(format!("{}", array), "1 2 3 4 2 4 4 2 \n3 4 2 5 4 2 3 2 ");
 }
-
+#[allow(non_snake_case)]
 impl Word {
-	pub fn to_two_rowed_array_0(&self) -> TwoRowedArray {
+	pub fn to_TwoRowedArray_0(&self) -> TwoRowedArray {
 		TwoRowedArray::from_pairs(self.0.iter().cloned().enumerate().collect())
 	}
 
-	pub fn to_two_rowed_array_1(&self) -> TwoRowedArray {
+	pub fn to_TwoRowedArray_1(&self) -> TwoRowedArray {
 		TwoRowedArray::from_pairs(self.0.iter().cloned().enumerate().map(|(index, value)| {(index + 1, value)}).collect())
 	}
 }
@@ -835,6 +827,18 @@ impl SkewTableau {
 	}
 }
 #[test]
+fn place_and_pop() {
+	let mut tableau = SkewTableau::from(vec![
+        vec![Some(1), Some(2), Some(3)],
+        vec![Some(2), Some(3)],
+        vec![Some(4)],
+	]);
+	tableau.pop_at(2);
+	// println!("{}", tableau);
+	tableau.pop_at(1);
+	// println!("{}", tableau);
+}
+#[test]
 fn greatest_row() {
 	let mut tableau = SkewTableau::from(vec![
         vec![Some(1), Some(2), Some(3)],
@@ -843,11 +847,11 @@ fn greatest_row() {
 	]);
 	assert_eq!(tableau.greatest_row(), Some(2));
 	tableau.pop_at(2);
-	// println!("{}", tableau);
-	assert_eq!(tableau.greatest_row(), Some(1));
-	// println!("{}", tableau);
-	tableau.pop_at(1);
+	println!("{}", tableau);
 	assert_eq!(tableau.greatest_row(), Some(0));
+	tableau.pop_at(0);
+	println!("{}", tableau);
+	assert_eq!(tableau.greatest_row(), Some(1));
 }
 
 // + to Tableau
@@ -899,7 +903,7 @@ impl TableauPair {
 		let mut Q = self.index_tableau();
 
 		while let Some(row_index) = Q.greatest_row() {
-			println!("{}", row_index);
+			// println!("{}", row_index);
 			v.push((Q.pop_at(row_index), P.reverse_bumping(row_index)));
 		}
 
@@ -925,6 +929,6 @@ fn conversion() {
 	let array = TwoRowedArray::from_two_arrays(vec![1,1,1,2,2,3,3,3,3], vec![1,2,2,1,2,1,1,1,2]).lexicographic_ordered();
 	#[allow(non_snake_case)]
 	let T = array.to_tableau_pair();
-	println!("{}", T);
 	assert_eq!(T.to_TwoRowedArray(), array);
 }
+// */

@@ -1,14 +1,12 @@
-#[allow(unused_imports)]
-use young_tableaux::{
-	Diagram, SkewDiagram,
-	SkewTableau,
-	Word, TwoRowedArray
-};
+// #[allow(unused_imports)]
+// use young_tableaux::{
+// 	Diagram, SkewDiagram,
+// 	SkewTableau,
+// 	Word, TwoRowedArray
+// };
+
 
 fn main() {
-	assert_eq!(TwoRowedArray::from_two_arrays(vec![1,2,3,4,2,4,4,2], vec![3,4,2,5,4,2,3,2]), TwoRowedArray::from_pairs(
-		vec![(1, 3),(2, 4),(3, 2),(4, 5),(2, 4),(4, 2),(4, 3),(2, 2)],
-	));
 }
 
 // fn main() {
