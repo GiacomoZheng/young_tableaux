@@ -1,51 +1,37 @@
-// #[allow(unused_imports)]
-// use young_tableaux::{
-// 	Diagram, SkewDiagram,
-// 	SkewTableau,
-// 	Word, TwoRowedArray
-// };
+#[allow(unused_imports)]
+use young_tableaux::{
+	Diagram, SkewDiagram,
+	StandardTableau, // ? Do I need it?
+		Tableau, SkewTableau,
+	Word, // + ReverseLatticeWord
+		TwoRowedArray, // + Permutation
+	TableauPair,
+	Matrix, BallMatrix
+};
 
-
+#[allow(unused_variables)]
+#[allow(non_snake_case)]
 fn main() {
+	let A = Matrix::from(vec![
+		1, 2, 1,
+		2, 2, 0,
+		1, 0, 1,
+	], 3, 3);
+
+	println!("{}", A.to_tableau_pair_1());
+	println!("{}", A);
+	println!("{}", A.to_new_matrix());
+	println!("{}", A.to_new_matrix().to_new_matrix());
+	println!("{}", A.to_new_matrix().to_new_matrix().to_new_matrix());
+
+
+	let v : Vec<u32> = vec![1,2,3];
+	// is the same as
+	let v = {
+		let mut tmp_v : Vec<u32> = Vec::new();
+		tmp_v.push(1);
+		tmp_v.push(2);
+		tmp_v.push(3);
+		tmp_v
+	};
 }
-
-// fn main() {
-// 	let mut tableau = Tableau::from(vec![
-//         vec![Some(1), Some(2), Some(3)],
-//         vec![Some(2), Some(3)],
-//         vec![Some(4)],
-// 	]);
-// 	assert_eq!(tableau.greatest_row(), Some(2));
-// 	println!("{}", tableau);
-// 	tableau.pop_at(2);
-// 	println!("{}", tableau);
-// 	assert_eq!(tableau.greatest_row(), Some(1));
-// 	println!("{}", tableau);
-// 	tableau.pop_at(1);
-// 	assert_eq!(tableau.greatest_row(), Some(0));
-// }
-
-// pub fn greatest(v : &Vec<Option<usize>>) -> Option<usize> {
-// 	if v.is_empty() {
-// 		return None;
-// 	}
-// 	let mut gest : Option<usize> = None;
-// 	let mut aim_index = usize::MAX;
-// 	for index in 0..v.len() {
-// 		let tmp = v[index];
-// 		if tmp >= gest {
-// 			aim_index = index;
-// 			gest = tmp;
-// 		} else if tmp == gest && index < aim_index {
-// 			aim_index = index;
-// 		}
-// 	}
-// 	Some(aim_index)
-// }
-
-// fn main() {
-// 	let mut v : Vec<Option<usize>> = vec![Some(3), Some(3), Some(4)];
-// 	assert_eq!(greatest(&v), Some(2));
-// 	v.pop();
-// 	assert_eq!(greatest(&v), Some(1));
-// }

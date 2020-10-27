@@ -1,15 +1,13 @@
-// + SkewTableau
-
 use std::fmt;
-use std::cmp::{PartialEq, PartialOrd};
-use std::ops::{Mul};
+use std::cmp::{PartialEq, PartialOrd, Ordering, max};
+use std::ops::{Mul, Range};
 
 mod tools;
-use tools::order::{is_strictly_increasing, is_weakly_increasing, replace_greatest_predecessor, replace_least_successor};
+use tools::order::{is_strictly_increasing, is_weakly_increasing, replace_greatest_predecessor, replace_least_successor, compare};
 use tools::VecTail;
 use tools::MathClass;
 
-#[derive(PartialEq, PartialOrd, Eq)]
+#[derive(PartialEq, PartialOrd, Eq, Debug, Clone)]
 pub struct Diagram(VecTail<usize>);
 impl MathClass for Diagram {
 	fn check(&self) -> Result<(), String> {
@@ -25,6 +23,10 @@ impl Diagram {
 		self.0.is_empty()
 	}
 	
+	pub fn new() -> Diagram {
+		Diagram(VecTail::new())
+	}
+	
 	pub fn from(v : Vec<usize>) -> Diagram {
 		let diag = Diagram(VecTail::from(v, 0usize));
 		if let Err(s) = diag.check() {
@@ -35,22 +37,25 @@ impl Diagram {
 
 	/// n(6, 4, 4, 2) = 6 + 4 + 4 + 2 = 16
 	pub fn n(&self) -> usize {
-		self.0.len()
+		self.0.iter_finite().sum()
 	}
 
 	/// |(6, 4, 4, 2)| = 4
 	pub fn abs(&self) -> usize {
-		self.0.iter_finite().count()
+		self.0.significant_length()
 	}
 
-	pub fn transpose(&self) -> Diagram {
+	/// maybe also named transpose
+	pub fn conjugate(&self) -> Diagram {
 		let mut list = VecTail::new();
 		// println!("{:?}", self);
 		// println!("{}", self);
-		for i in 0..*self.0.iter().next().unwrap()  {
+		for i in 0..self.0[0]  {
+			// println!("i : {}", i);
 			let depth = self.0.iter_finite().take_while(|e| {**e > i}).count();
-			list.push(depth);
+			list[i] = depth;
 		}
+		println!("{:?}", list);
 		Diagram(list)
 	}
 
@@ -76,38 +81,29 @@ impl Diagram {
 		self.rows_of_corners().into_iter().map(|x| {x + 1}).collect()
 	}
 }
-#[test]
-fn transpose() {
+#[test] fn conjugate() {
 	let diagram = Diagram::from(vec![6,6,3,2,1]);
-	assert_eq!(diagram.transpose(), Diagram::from(vec![5,4,3,2, 2,2]));
+	assert_eq!(diagram.conjugate(), Diagram::from(vec![5,4,3,2, 2,2]));
 }
-#[test]
-fn corners() {
+#[test] fn corners() {
 	let diagram = Diagram::from(vec![3,2,2,1]);
 	assert_eq!(diagram.rows_of_corners(), vec![0,2,3]);
 }
 
-impl fmt::Debug for Diagram {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
 impl fmt::Display for Diagram {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		for &len in self.0.iter().take_while(|len| {**len > 0}) {
+		for &len in self.0.iter_finite() {
 			writeln!(f, "{}", "■ ".repeat(len))?;
 		}
 		write!(f, "")
     }
 }
-#[test]
-fn display_diagram() {
+#[test] fn display_diagram() {
 	let diagram = Diagram::from(vec![3,2,1]);
 	// println!("{}", diagram);
 	assert_eq!(format!("{}", diagram), String::from("■ ■ ■ \n■ ■ \n■ \n"));
 }
-#[test]
-fn order() {
+#[test] fn order() {
 	let diagram = Diagram::from(vec![5,4,1]);
 	let diagram_e = Diagram::from(vec![5,4,1]);
 	let diagram_l = Diagram::from(vec![4,4,1]);
@@ -118,7 +114,7 @@ fn order() {
 	assert!(diagram_l <= diagram);
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub struct SkewDiagram {
 	inner : Diagram,
 	outer : Diagram,
@@ -166,32 +162,456 @@ impl fmt::Display for SkewDiagram {
 		write!(f, "")
     }
 }
-#[test]
-fn print_skew_diagram() {
+#[test] fn display_skew_diagram() {
 	let skew_diagram = SkewDiagram::from(
 		Diagram(VecTail::from(vec![2,1], 0)),
 		Diagram(VecTail::from(vec![3,2,1], 0)),
 	);
 	// println!("{}", skew_diagram);
 	assert_eq!(format!("{}", skew_diagram), String::from("□ □ ■ \n□ ■ \n■ \n"));
-	assert_eq!(format!("{:?}", skew_diagram), String::from("λ: (2, 1, 0...), μ: (3, 2, 1, 0...)"));
+}
+
+impl Mul for SkewDiagram {
+	type Output = SkewDiagram;
+    /// simply put the right skew Diagram on the right above block of left one
+	/// i.e. λ * μ (page 60) = 
+	/// □ □ ■ ■
+	/// □ □ ■
+	/// □ ■
+	/// ■ ■
+    fn mul(self, rhs: Self) -> SkewDiagram {
+		let delta_height = rhs.outer.0.significant_length() - rhs.inner.0.significant_length();
+		let length = self.outer.0[0];
+		SkewDiagram::from(
+			Diagram::from(rhs.inner.0.into_iter_finite().map(|e| {
+				length + e
+			}).chain(vec![length ; delta_height].into_iter()).chain(self.inner.0.into_iter_finite()).collect()),
+
+			Diagram::from(rhs.outer.0.into_iter_finite().map(|e| {
+				length + e
+			}).chain(self.outer.0.into_iter_finite()).collect()),
+		)
+    }
+}
+
+impl Diagram {
+	pub fn to_skew_diagram(&self) -> SkewDiagram {
+		SkewDiagram::from(Diagram::new(), self.clone())
+	}
+}
+
+impl Mul for Diagram {
+	type Output = SkewDiagram;
+    /// simply put the right Diagram on the right above block of left one
+	/// i.e. λ * μ (page 60) = 
+	/// □ □ ■ ■
+	/// □ □ ■
+	/// □ ■
+	/// ■ ■
+    fn mul(self, rhs: Self) -> SkewDiagram {
+		self.to_skew_diagram() * rhs.to_skew_diagram()
+    }
+}
+
+#[test] fn mul_skew_diagram() {
+	let sd_1 = SkewDiagram::from(
+		Diagram(VecTail::from(vec![2], 0)),
+		Diagram(VecTail::from(vec![3,2,1], 0)),
+	);
+
+	let sd_2 = SkewDiagram::from(
+		Diagram(VecTail::from(vec![1], 0)),
+		Diagram(VecTail::from(vec![3,2], 0))
+	);
+
+	assert_eq!(sd_1.inner.clone() * sd_2.inner.clone(), SkewDiagram::from(
+		Diagram(VecTail::from(vec![2], 0)),
+		Diagram(VecTail::from(vec![3,2], 0)),
+	));
+
+	// println!("{}", sd_1 * sd_2);
+	assert_eq!(sd_1 * sd_2, SkewDiagram::from(
+		Diagram(VecTail::from(vec![4,3,2], 0)),
+		Diagram(VecTail::from(vec![6,5,3,2,1], 0)),
+	));
 }
 
 // -------------------------------------------------------------
-#[derive(PartialEq, Debug, Clone)]
-pub struct SkewTableau(VecTail<Vec<Option<usize>>>);
-impl MathClass for SkewTableau {
-	// ? to complicated
+/// ? Do I really need this?
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct StandardTableau(VecTail<Vec<usize>>);
+impl MathClass for StandardTableau {
+	// ? too complicated
+	// ! direct copied from below
 	fn check(&self) -> Result<(), String> {
 		self.shape().check()?;
 
-		for row in self.0.iter().take_while(|e| {**e != Vec::new()}) {
+		for row in self.0.iter_finite() {
+			if let Err(s) = is_strictly_increasing(row) { // * strictly
+				return Err(format!("rows in tableau {}", s));
+			}
+		}
+		for col in self.transpose().iter_finite() {
+			if let Err(s) = is_strictly_increasing(col) {
+				return Err(format!("cols in tableau {}", s))
+			}
+		}
+		Ok(())
+	}
+}
+impl StandardTableau {
+	pub fn new() -> StandardTableau {
+		StandardTableau(VecTail::new())
+	}
+
+	pub fn from(v : Vec<Vec<usize>>) -> StandardTableau {
+		let tableau = StandardTableau(VecTail::from(v, Vec::new()));
+
+		if let Err(s) = tableau.check() {
+			panic!("StandardTableau: {}", s);
+		}
+		tableau
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.0.is_empty()
+	}
+
+	// ? to complicated 
+	// ! direct copied from below
+	fn transpose(&self) -> VecTail<Vec<usize>> {
+		let mut v = Vec::new();
+		for index in 0..self.0[0].len() {
+			let mut tmp_v = Vec::new();
+			for row in self.0.iter() {
+				if index < row.len() {
+					tmp_v.push(row[index]);
+				} else {
+					break;
+				}
+			}
+			v.push(tmp_v);
+		}
+		VecTail::from(v, Vec::new())
+	}
+
+	pub fn shape(&self) -> Diagram {
+		Diagram::from(self.0.iter_finite().map(|v| {v.iter().count()}).collect())
+	}
+
+	pub fn to_tableau(self) -> Tableau {
+		Tableau(self.0)
+	}
+
+	pub fn to_skew_tableau(self) -> SkewTableau {
+		SkewTableau::from(
+			self.0.into_iter_finite().map(|v| {
+				v.into_iter().map(|e| Some(e)).collect()
+			}).collect()
+		)
+	}
+}
+
+impl fmt::Display for StandardTableau {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		for v in self.0.iter_finite() {
+			for e in v.iter() {
+				write!(f, "{} ", e)?;
+			}
+			writeln!(f, "")?;
+		}
+		write!(f, "")
+    }
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct Tableau(VecTail<Vec<usize>>);
+impl MathClass for Tableau {
+	// fn check(&self) -> Result<(), String> {
+	// 	self.to_skew_tableau().check()
+	// }
+	// ? too complicated
+	// ! direct copied from below
+	fn check(&self) -> Result<(), String> {
+		self.shape().check()?;
+
+		for row in self.0.iter_finite() {
 			if let Err(s) = is_weakly_increasing(row) {
 				return Err(format!("rows in tableau {}", s));
 			}
 		}
+		for col in self.pre_transpose().iter_finite() {
+			if let Err(s) = is_strictly_increasing(col) {
+				return Err(format!("cols in tableau {}", s))
+			}
+		}
+		Ok(())
+	}
+}
+impl Tableau {
+	pub fn new() -> Tableau {
+		Tableau(VecTail::new())
+	}
 
-		for col in self.pre_transpose().iter().take_while(|e| {**e != Vec::new()}) {
+	pub fn from(v : Vec<Vec<usize>>) -> Tableau {
+		let tableau = Tableau(VecTail::from(v, Vec::new()));
+
+		if let Err(s) = tableau.check() {
+			panic!("Tableau: {}", s);
+		}
+		tableau
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.0.is_empty()
+	}
+
+	// ? to complicated 
+	// ! direct copied from below
+	fn pre_transpose(&self) -> VecTail<Vec<usize>> {
+		let mut v = Vec::new();
+		for index in 0..self.0[0].len() {
+			let mut tmp_v = Vec::new();
+			for row in self.0.iter() {
+				if index < row.len() {
+					tmp_v.push(row[index]);
+				} else {
+					break;
+				}
+			}
+			v.push(tmp_v);
+		}
+		VecTail::from(v, Vec::new())
+	}
+
+	pub fn shape(&self) -> Diagram {
+		Diagram::from(self.0.iter_finite().map(|v| {v.iter().count()}).collect())
+	}
+
+	/// return the row_index of the greatest element
+	/// pick the rightmost within the equals
+	pub fn greatest_row(&self) -> Option<usize> {
+		// println!("self: {:?}", self);
+		// println!("{:?}", self.is_empty());
+		if self.is_empty() {
+			None
+		} else {
+			let mut gest : usize = usize::MIN;
+			let mut aim_index = usize::MAX;
+			for index in self.shape().rows_of_corners() {
+				let tmp = *self.0[index].last().unwrap();
+				if tmp > gest {
+					aim_index = index;
+					// println!("aim: {}", aim_index);
+					gest = tmp;
+				} else if tmp == gest && index < aim_index {
+					aim_index = index;
+					// println!("aim: {}", aim_index);
+				}
+			}
+			Some(aim_index)
+		}
+	}
+
+	pub fn greatest(&self) -> usize {
+		if let Some(row) = self.greatest_row() {
+			*self.0[row].last().unwrap()
+		} else {
+			usize::MIN
+		}
+	}
+
+	pub fn content_0(&self) -> Vec<usize> {
+		let mut v = VecTail::new();
+		for line in self.0.iter_finite() {
+			let mut iter = line.iter().peekable();
+			for i in 0..=*line.last().unwrap() {
+				while Some(&&i) == iter.peek() {
+					v[i] += 1;
+					iter.next();
+				}
+			}
+		}
+		v.into_iter_finite().collect()
+	}
+		pub fn weight_0(&self) -> Vec<usize> {self.content_0()}
+		pub fn type_0(&self) -> Vec<usize> {self.content_0()}
+
+	pub fn content_1(&self) -> Vec<usize> {
+		if Some(&0) == self.0[0].first() {
+			panic!("it seems you use a tableau start from 0, try content_0 please");
+		} else {
+			let mut v = VecTail::new();
+			for line in self.0.iter_finite() {
+				let mut iter = line.iter().peekable();
+				for i in 1..=*line.last().unwrap() { // * 1
+					while Some(&&i) == iter.peek() {
+						v[i - 1] += 1; // * 1
+						iter.next();
+					}
+				}
+			}
+			v.into_iter_finite().collect() 
+		}
+	}
+		pub fn weight_1(&self) -> Vec<usize> {self.content_1()}
+		pub fn type_1(&self) -> Vec<usize> {self.content_1()}
+
+	/// panic if it do not satisfies the criteria of StandardTableau
+	pub fn to_standard_tableau(self) -> StandardTableau {
+		StandardTableau::from(self.0.into_iter_finite().collect()) 
+	}
+
+	pub fn to_skew_tableau(self) -> SkewTableau {
+		SkewTableau::from(
+			self.0.into_iter_finite().map(|v| {
+				v.into_iter().map(|e| Some(e)).collect()
+			}).collect()
+		)
+	}
+}
+#[test] fn content() {
+	let t = Tableau::from(vec![
+        vec![1, 2, 3],
+        vec![2, 3],
+        vec![4],
+	]);
+	// println!("{:?}", t.content_0());
+	assert_eq!(vec![0,1,2,2,1], t.content_0());
+	assert_eq!(vec![1,2,2,1], t.content_1());
+
+	assert_eq!(t.content_0().into_iter().sum::<usize>(), t.shape().n());
+}
+impl Tableau {
+	/// or `row_insert`
+	/// return the row_index of the final process
+	pub fn row_bumping(&mut self, x : usize) -> usize {
+		let mut bumped = x; // it would become bigger and bigger 
+		let mut row_index = 0;
+		while let Some(tmp) = replace_least_successor(bumped, &mut self.0[row_index]) {
+			bumped = tmp;
+			row_index += 1;
+		}
+		self.0[row_index].push(bumped);
+		row_index
+	}
+		pub fn row_insert(&mut self, x : usize) -> usize {
+			self.row_bumping(x)
+		}
+
+	/// ? to complicated
+	/// return the value inserted 
+	pub fn reverse_bumping(&mut self, row_index : usize) -> usize {
+		if let Some(mut bumped) = self.0[row_index].pop() {
+			for row in self.0.iter_finite_mut().take(row_index).rev() { // ?
+				if let Some(tmp) = replace_greatest_predecessor(bumped, row) {
+					bumped = tmp;
+				} else {
+					panic!("it is not a well defined tableau")
+				}
+			}
+			bumped
+		} else {
+			panic!("no possible \"new block\" in this row")
+		}
+	}
+}
+#[test] fn bumping() {
+	let mut tableau = Tableau::from(vec![
+        vec![1, 2, 3],
+        vec![2, 3],
+        vec![4],
+	]);
+	// println!("{}", tableau);
+	
+	let r1 = tableau.row_bumping(2);
+	assert_eq!(r1, 1);
+	// println!("{}", tableau);
+	assert_eq!(tableau, Tableau::from(vec![
+        vec![1, 2, 2],
+        vec![2, 3, 3],
+        vec![4],
+	]));
+
+	let r2 = tableau.row_bumping(1);
+	assert_eq!(r2, 3);
+	// println!("{}", tableau);
+	assert_eq!(tableau, Tableau::from(vec![
+        vec![1, 1, 2],
+        vec![2, 2, 3],
+        vec![3],
+        vec![4],
+	]));
+	
+	assert_eq!(tableau.reverse_bumping(r2), 1);
+	// println!("{}", tableau);
+	assert_eq!(tableau, Tableau::from(vec![
+        vec![1, 2, 2],
+        vec![2, 3, 3],
+        vec![4],
+	]));
+	
+	assert_eq!(tableau.reverse_bumping(r1), 2);
+	// println!("{}", tableau);
+	assert_eq!(tableau, Tableau::from(vec![
+        vec![1, 2, 3],
+        vec![2, 3],
+        vec![4],
+	]));
+}
+impl Mul for Tableau {
+	type Output = Self;
+    fn mul(mut self, rhs: Self) -> Self {
+		for &r in rhs.to_word().0.iter() {
+			self.row_bumping(r);
+		}
+		self
+    }
+}
+#[test] fn mul_tableau() {
+	let lhs = Word(vec![1,2,3,4,3]).to_tableau();
+	let rhs = Word(vec![1,2,3,4,3]).to_tableau();
+	assert_eq!((lhs * rhs).to_word(), Word(vec![4,2,3,4,1,1,2,3,3,3]));
+	
+	let lhs = Word(vec![1,2,3,4,3]).to_tableau();
+	let rhs = Word(vec![3,6,3,4]).to_tableau();
+	assert_eq!((lhs * rhs).to_word(), Word(vec![4,6,1,2,3,3,3,3,4]));
+}
+
+impl fmt::Display for Tableau {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		for v in self.0.iter_finite() {
+			for e in v.iter() {
+				write!(f, "{} ", e)?;
+			}
+			writeln!(f, "")?;
+		}
+		write!(f, "")
+    }
+}
+#[test] fn display_tableau() {
+	let tableau = Tableau::from(vec![
+		vec![2, 6, 7, 8],
+		vec![5, 7, 8],
+		vec![6, 8],
+	]);
+	// println!("{}", tableau);
+	assert_eq!(format!("{}", tableau), String::from("2 6 7 8 \n5 7 8 \n6 8 \n"));
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct SkewTableau(VecTail<Vec<Option<usize>>>);
+impl MathClass for SkewTableau {
+	// ? too complicated
+	fn check(&self) -> Result<(), String> {
+		self.shape().check()?;
+
+		for row in self.0.iter_finite() {
+			if let Err(s) = is_weakly_increasing(row) {
+				return Err(format!("rows in tableau {}", s));
+			}
+		}
+		for col in self.pre_transpose().iter_finite() {
 			if let Err(s) = is_strictly_increasing(col) {
 				return Err(format!("cols in tableau {}", s))
 			}
@@ -213,14 +633,14 @@ impl SkewTableau {
 		tableau
 	}
 
-	fn is_empty(&self) -> bool {
+	pub fn is_empty(&self) -> bool {
 		self.0.is_empty()
 	}
 
 	// ? to complicated
 	fn pre_transpose(&self) -> VecTail<Vec<Option<usize>>> {
 		let mut v : Vec<Vec<Option<usize>>> = Vec::new();
-		for index in 0..self.0.iter().next().unwrap().len() {
+		for index in 0..self.0[0].len() {
 			let mut tmp_v = Vec::new();
 			for row in self.0.iter() {
 				if index < row.len() {
@@ -236,16 +656,35 @@ impl SkewTableau {
 		VecTail::from(v, Vec::new())
 	}
 
+	pub fn content_0(&self) -> Vec<usize> {
+		unimplemented!()
+	}
+		pub fn weight_0(&self) -> Vec<usize> {self.content_0()}
+		pub fn type_0(&self) -> Vec<usize> {self.content_0()}
+
+	pub fn content_1(&self) -> Vec<usize> {
+		unimplemented!()
+	}
+		pub fn weight_1(&self) -> Vec<usize> {self.content_1()}
+		pub fn type_1(&self) -> Vec<usize> {self.content_1()}
+
+
 	pub fn shape(&self) -> SkewDiagram {
 		SkewDiagram::from(
 			Diagram::from(self.0.iter_finite().map(|v| {v.iter().take_while(|e| {e.is_none()}).count()}).collect()),
 			Diagram::from(self.0.iter_finite().map(|v| {v.iter().count()}).collect()),
 		)
 	}
-}
 
-#[test]
-fn check_skew_tableau() {
+	pub fn to_tableau(self) -> Tableau {
+		Tableau::from(
+			self.0.into_iter_finite().map(|v| {
+				v.into_iter().map(|e| e.expect("this is not a tableau, try .rect() please")).collect()
+			}).collect()
+		)
+	}
+}
+#[test] fn check_skew_tableau() {
 	assert!(
 		std::panic::catch_unwind(|| {
 			SkewTableau::from(vec![
@@ -254,10 +693,42 @@ fn check_skew_tableau() {
 				vec![Some(2)],
 			]);
 		}).is_err()
-	)
+	);
 }
-#[test]
-fn shape() {
+#[test] fn conversion_skew_or_not() {
+	assert!(
+		std::panic::catch_unwind(|| {
+			SkewTableau::from(vec![
+				vec![   None, Some(1), Some(2)],
+				vec![   None, Some(2)],
+				vec![Some(2)],
+			]).to_tableau();
+		}).is_err()
+	);
+
+	assert_eq!(
+		SkewTableau::from(vec![
+			vec![Some(1), Some(2)],
+			vec![Some(2)],
+		]).to_tableau(),
+		Tableau::from(vec![
+			vec![1, 2],
+			vec![2],
+		])
+	);
+
+	assert_eq!(
+		SkewTableau::from(vec![
+			vec![Some(1), Some(2)],
+			vec![Some(2)],
+		]),
+		Tableau::from(vec![
+			vec![1, 2],
+			vec![2],
+		]).to_skew_tableau()
+	);
+}
+#[test] fn shape() {
 	let tableau = SkewTableau::from(vec![
         vec![   None,    None, Some(3)],
         vec![Some(2), Some(3)],
@@ -270,41 +741,33 @@ fn shape() {
 		outer : Diagram(VecTail::from(vec![3,2,1], 0)),
 	});
 }
+#[test] fn content_skew_tableau() {
+	// + content
+	let t = SkewTableau::from(vec![
+        vec![   None, Some(1), Some(3)],
+        vec![Some(2), Some(3)],
+        vec![Some(4)],
+	]);
+	// println!("{:?}", t.content_0());
+	assert_eq!(vec![0,1,1,2,1], t.content_0());
+	assert_eq!(vec![1,1,2,1], t.content_1());
+
+	// assert_eq!(t.content_0().into_iter().sum::<usize>(), t.shape().n());
+
+	let t = SkewTableau::from(vec![
+        vec![   None, Some(0), Some(3)],
+        vec![Some(2), Some(3)],
+        vec![Some(4)],
+	]);
+
+	assert!(
+		std::panic::catch_unwind(|| {
+			t.content_1()
+		}).is_err()
+	)
+}
 
 impl SkewTableau {
-	/// or `row_insert`
-	/// return the row_index of the final process
-	pub fn row_bumping(&mut self, x : usize) -> usize {
-		let mut bumped = x; // it would become bigger and bigger 
-		let mut row_index = 0;
-		while let Some(tmp) = replace_least_successor(bumped, &mut self.0[row_index]) {
-			bumped = tmp;
-			row_index += 1;
-		}
-		self.0[row_index].push(Some(bumped));
-		row_index
-	}
-		pub fn row_insert(&mut self, x : usize) -> usize {
-			self.row_bumping(x)
-		}
-
-	/// ? to complicated
-	/// return the value inserted 
-	pub fn reverse_bumping(&mut self, row_index : usize) -> usize {
-		if let Some(Some(mut bumped)) = self.0[row_index].pop() {
-			for row in self.0.iter_finite_mut().take(row_index).rev() { // ?
-				if let Some(tmp) = replace_greatest_predecessor(bumped, row) {
-					bumped = tmp;
-				} else {
-					panic!("it is not a well defined tableau")
-				}
-			}
-			bumped
-		} else {
-			panic!("no possible \"new block\" in this row")
-		}
-	}
-
 	/// return the index of the removed corner
 	pub fn sliding(&mut self, mut row_index : usize) -> usize {
 		// println!("{}", self);
@@ -314,7 +777,7 @@ impl SkewTableau {
 			loop {
 				// println!("{}", self);
 				// println!("hole: ({}, {})", col_index, row_index);
-				let below_one = {
+				let south_one = {
 					let next_row = &mut self.0[row_index + 1];
 					if let Some(e) = next_row.get_mut(col_index) {
 						e.take()
@@ -322,30 +785,30 @@ impl SkewTableau {
 						None
 					}
 				};
-				// println!("below one: {:?}", below_one);
-				let right_one = match self.0[row_index].get_mut(col_index + 1) {
+				// println!("below one: {:?}", south_one);
+				let east_one = match self.0[row_index].get_mut(col_index + 1) {
 					Some(e) => e.take(),
 					None => None
 				};
-				// println!("right one: {:?}", right_one);
+				// println!("right one: {:?}", east_one);
 				
-				if (below_one, right_one) == (None, None) {
+				if (south_one, east_one) == (None, None) {
 					self.0[row_index].pop(); // remove the hole
 					// println!("end");
 					break row_index;
 
-				} else if (right_one.is_some() && right_one < below_one) || below_one.is_none() {
-					self.0[row_index][col_index] = right_one;
-					if below_one.is_some() {
-						self.0[row_index + 1][col_index] = below_one;
+				} else if (east_one.is_some() && east_one < south_one) || south_one.is_none() {
+					self.0[row_index][col_index] = east_one;
+					if south_one.is_some() {
+						self.0[row_index + 1][col_index] = south_one;
 					}
 					col_index += 1;
 					// println!("move to right");
-				} else if (below_one.is_some() && right_one >= below_one) || right_one.is_none(){
+				} else if (south_one.is_some() && east_one >= south_one) || east_one.is_none(){
 					// if they are equal, move to the below one
-					self.0[row_index][col_index] = below_one;
-					if right_one.is_some() {
-						self.0[row_index][col_index + 1] = right_one;
+					self.0[row_index][col_index] = south_one;
+					if east_one.is_some() {
+						self.0[row_index][col_index + 1] = east_one;
 					}
 					row_index += 1;
 					// println!("move to below");
@@ -359,21 +822,22 @@ impl SkewTableau {
 		}
 	}
 
-	/// ! unstable: `self.0.len()`
 	/// Rect(S)
 	/// jeu de taquin
 	/// a rectification (redressement) of a skew tableau S
-	pub fn rect(&mut self) {
+	/// return a Tableau
+	pub fn rect(mut self) -> Tableau {
 		// do until self.shape().inner is empty
 		// I'll repeat on last non-empty inner line, which is always a corner
 		let list = self.shape().inner.0;
-		for row_index in (0..list.len()).rev() { // ?
+		for row_index in (0..list.significant_length()).rev() {
 			for _ in 0..list[row_index] {
 				// println!("start a new hole at {}", row_index);
 				self.sliding(row_index);
 			}
-
 		}
+
+		self.to_tableau()
 	}
 
 	/// note: `reverse` of sliding(1) may not be the reverse_sliding(1), it should be reverse_sliding(sliding(1))
@@ -387,36 +851,36 @@ impl SkewTableau {
 			loop {
 				// println!("{}", self);
 				// println!("hole: ({}, {})", col_index, row_index);
-				let above_one = if row_index == 0 {
+				let north_one = if row_index == 0 {
 					None
 				} else {
 					self.0[row_index - 1][col_index].take()
 				};
-				// println!("above one: {:?}", above_one);
-				#[allow(non_snake_case)]
-				let left__one = if col_index == 0 {
+				// println!("above one: {:?}", north_one);
+
+				let west_one = if col_index == 0 {
 					None
 				} else {
 					self.0[row_index][col_index - 1].take()
 				};
-				// println!("left one: {:?}", left__one);
+				// println!("left one: {:?}", west_one);
 				
-				if (above_one, left__one) == (None, None) {
+				if (north_one, west_one) == (None, None) {
 					// println!("end");
 					break row_index;
 
-				} else if (left__one.is_some() && left__one > above_one) || above_one.is_none() {
-					self.0[row_index][col_index] = left__one;
-					if above_one.is_some() {
-						self.0[row_index - 1][col_index] = above_one;
+				} else if (west_one.is_some() && west_one > north_one) || north_one.is_none() {
+					self.0[row_index][col_index] = west_one;
+					if north_one.is_some() {
+						self.0[row_index - 1][col_index] = north_one;
 					}
 					col_index -= 1;
 					// println!("move to left");
-				} else if (above_one.is_some() && left__one <= above_one) || left__one.is_none(){
+				} else if (north_one.is_some() && west_one <= north_one) || west_one.is_none(){
 					// if they are equal, move to the below one
-					self.0[row_index][col_index] = above_one;
-					if left__one.is_some() {
-						self.0[row_index][col_index - 1] = left__one;
+					self.0[row_index][col_index] = north_one;
+					if west_one.is_some() {
+						self.0[row_index][col_index - 1] = west_one;
 					}
 					row_index -= 1;
 					// println!("move to above");
@@ -430,50 +894,7 @@ impl SkewTableau {
 		}
 	}
 }
-#[test]
-fn bumping() {
-	let mut tableau = SkewTableau::from(vec![
-        vec![Some(1), Some(2), Some(3)],
-        vec![Some(2), Some(3)],
-        vec![Some(4)],
-	]);
-	// println!("{}", tableau);
-	
-	let r1 = tableau.row_bumping(2);
-	// println!("{}", tableau);
-	assert_eq!(tableau, SkewTableau::from(vec![
-        vec![Some(1), Some(2), Some(2)],
-        vec![Some(2), Some(3), Some(3)],
-        vec![Some(4)],
-	]));
-
-	let r2 = tableau.row_bumping(1);
-	// println!("{}", tableau);
-	assert_eq!(tableau, SkewTableau::from(vec![
-        vec![Some(1), Some(1), Some(2)],
-        vec![Some(2), Some(2), Some(3)],
-        vec![Some(3)],
-        vec![Some(4)],
-	]));
-	
-	assert_eq!(tableau.reverse_bumping(r2), 1);
-	// println!("{}", tableau);
-	assert_eq!(tableau, SkewTableau::from(vec![
-        vec![Some(1), Some(2), Some(2)],
-        vec![Some(2), Some(3), Some(3)],
-        vec![Some(4)],
-	]));
-	
-	assert_eq!(tableau.reverse_bumping(r1), 2);
-	// println!("{}", tableau);
-	assert_eq!(tableau, SkewTableau::from(vec![
-        vec![Some(1), Some(2), Some(3)],
-        vec![Some(2), Some(3)],
-        vec![Some(4)],
-	]));
-}
-#[test]
-fn sliding() {
+#[test] fn sliding() {
 	let mut skew_tableau = SkewTableau::from(vec![
         vec![   None,    None, Some(2)],
         vec![   None, Some(6)],
@@ -503,44 +924,56 @@ fn sliding() {
         vec![Some(5)],
 	]));
 
-	let mut skew_tableau = Word(vec![1,2,42,4,5,3,3,4,3,4,2,233,2]).to_skew_tableau();
+	let skew_tableau = Word(vec![1,2,42,4,5,3,3,4,3,4,2,233,2]).to_skew_tableau();
 	// println!("{}", skew_tableau);
 
-	skew_tableau.rect();
-	// println!("{}", tableau);
-	let tableau = skew_tableau;
-	assert_eq!(tableau,SkewTableau::from(vec![
-		vec![Some(1), Some(2), Some(2), Some(2), Some(3), Some(4), Some(233)],
-		vec![Some(3), Some(3)],
-		vec![Some(4), Some(4)],
-		vec![Some(5)],
-		vec![Some(42)],
+	let tableau = skew_tableau.rect();
+	assert_eq!(tableau, Tableau::from(vec![
+		vec![1, 2, 2, 2, 3, 4, 233],
+		vec![3, 3],
+		vec![4, 4],
+		vec![5],
+		vec![42],
 	]));
+	// println!("{}", tableau);
+
 }
 
 impl Mul for SkewTableau {
 	type Output = Self;
-    fn mul(mut self, rhs: Self) -> Self {
-		for &r in rhs.to_word().0.iter() {
-			self.row_bumping(r);
-		}
-		self
+	/// simply put the right skew tableau on the right above block of left one
+	/// i.e. T * U (in page 15) = 
+	/// □ □ 2 3
+	/// □ □ 3
+	/// 2 2
+	/// 2 2
+    fn mul(self, rhs: Self) -> Self {
+		let l = self.0[0].len();
+		SkewTableau::from(
+			rhs.0.into_iter_finite().map(|v| {
+				[vec![None; l], v].concat()
+			}).chain(self.0.into_iter_finite()).collect()
+		)
     }
 }
-#[test]
-fn mul_tableau() {
-	let lhs = Word(vec![1,2,3,4,3]).to_tableau();
-	let rhs = Word(vec![1,2,3,4,3]).to_tableau();
-	assert_eq!((lhs * rhs).to_word(), Word(vec![4,2,3,4,1,1,2,3,3,3]));
-	
-	let lhs = Word(vec![1,2,3,4,3]).to_tableau();
-	let rhs = Word(vec![3,6,3,4]).to_tableau();
-	assert_eq!((lhs * rhs).to_word(), Word(vec![4,6,1,2,3,3,3,3,4]));
+#[test] fn mul_skew_tableau() {
+	let st1 = SkewTableau::from(vec![
+		vec![Some(1), Some(2), Some(3)],
+		vec![Some(2)],
+	]);
+	let st2 = SkewTableau::from(vec![
+		vec![Some(1), Some(3)],
+		vec![Some(2), Some(4)],
+	]);
+
+	// println!("{}", st1 * st2);
+	assert_eq!(st1.clone().to_tableau() * st2.clone().to_tableau(), (st1 * st2).rect());
+
 }
 
 impl fmt::Display for SkewTableau {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		for v in self.0.iter().take_while(|e| {**e != Vec::new()}) {
+		for v in self.0.iter_finite() {
 			for e in v.iter() {
 				if let Some(e) = e {
 					write!(f, "{} ", e)?;
@@ -553,8 +986,7 @@ impl fmt::Display for SkewTableau {
 		write!(f, "")
     }
 }
-#[test]
-fn display_tableau() {
+#[test] fn display_skew_tableau() {
 	let tableau = SkewTableau::from(vec![
 		vec![   None, Some(6), Some(7), Some(8)],
 		vec![Some(5), Some(7), Some(8)],
@@ -564,21 +996,21 @@ fn display_tableau() {
 	assert_eq!(format!("{}", tableau), String::from("□ 6 7 8 \n5 7 8 \n6 8 \n"));
 }
 
-#[derive(Debug, PartialEq, Clone)]
+// ------------------------------------------
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Word(pub Vec<usize>);
 impl Word {
 	pub fn len(&self) -> usize {
 		self.0.len()
 	}
 
-	/// `L(w, k)` means the largest numberas within the sum of the lengths of `k` disjoint (weakly) increasing sequences extracted from `w`
+	/// `L(w, k)` means the largest numbers within the sum of the lengths of `k` disjoint (weakly) increasing sequences extracted from `w`
 	#[allow(non_snake_case)]
 	pub fn L(&self, k : usize) -> usize {
-		self.to_tableau().shape().outer.0.iter().cloned().take(k).sum()
+		self.to_tableau().shape().0.iter().cloned().take(k).sum()
 	}
 }
-#[test]
-fn increasing_seq() {
+#[test] fn increasing_seq() {
 	let word = Word(vec![1, 4, 2, 5, 6, 3]);
 	assert_eq!(word.L(0), 0);
 	assert_eq!(word.L(1), 4);
@@ -610,37 +1042,58 @@ impl Word {
 	}
 
 	/// row insert one by one
-	pub fn to_tableau(&self) -> SkewTableau {
-		let mut tableau = SkewTableau::new();
+	pub fn to_tableau(&self) -> Tableau {
+		let mut tableau = Tableau::new();
 		for &letter in self.0.iter() {
 			tableau.row_insert(letter);
 		}
 		tableau
 	}
 }
-impl SkewTableau {
+impl Tableau {
 	/// w(T) = from left below side to right and row by row upwards
-	pub fn to_word(&self) -> Word { // may be -> Word
-		Word(self.0.iter_finite().rev().flatten().filter(|e| {e.is_some()}).map(|e| {e.unwrap()}).collect())
+	pub fn to_word(&self) -> Word {
+		Word(self.0.iter_finite().cloned().rev().flatten().collect())
+	}
+	// + to col word, page. 27
+	/// w_col(T) = from left below side to upwards and col by col rightwards
+	pub fn to_col_word(&self) -> Word {
+		Word(self.pre_transpose().iter_finite().cloned().rev().flatten().rev().collect())
 	}
 }
-#[test]
-fn word() {
+impl SkewTableau {
+	/// w(T) = from left below side to right and row by row upwards
+	pub fn to_word(&self) -> Word {
+		Word(self.0.iter_finite().cloned().rev().flatten().filter(|e| {e.is_some()}).map(|e| {e.unwrap()}).collect())
+	}
+	// + to col word, page. 27
+	/// w_col(T) = from left below side to upwards and col by col rightwards
+	pub fn to_col_word(&self) -> Word {
+		Word(self.pre_transpose().iter_finite().cloned().rev().flatten().filter(|e| {e.is_some()}).map(|e| {e.unwrap()}).rev().collect())
+	}
+
+}
+#[test] fn word() {
 	let tableau = SkewTableau::from(vec![
 		vec![   None,Some(4),Some(5),Some(6),Some(7)],
-		vec![Some(5),Some(7)],
+		vec![Some(3),Some(6),Some(7)],
 		vec![Some(7)],
 	]);
 	
 	// println!("{}", tableau);
 	let word = tableau.to_word();
-	assert_eq!(word, Word(vec![7, 5, 7, 4, 5, 6, 7]));
+	assert_eq!(word, Word(vec![7, 3, 6, 7, 4, 5, 6, 7]));
+
+	let col_word = tableau.to_col_word();
+	assert_eq!(col_word, Word(vec![7, 3, 6, 4, 7, 5, 6, 7]));
 	
 	let skew_tableau = word.to_skew_tableau();
 	// println!("{}", skew_tableau);
-	assert_eq!(skew_tableau.to_word(), Word(vec![7, 5, 7, 4, 5, 6, 7]));
+	assert_eq!(skew_tableau.to_word(), word);
 
-	assert_eq!(word.to_tableau().to_word(), Word(vec![7, 5, 7, 4, 5, 6, 7]));
+	assert_eq!(word.to_tableau().to_word(), Word(vec![7, 6, 7, 3, 4, 5, 6, 7]));
+
+	assert_eq!(word.to_tableau().to_word(), col_word.to_tableau().to_word());
 }
 
 impl Mul for Word {
@@ -650,56 +1103,20 @@ impl Mul for Word {
 		self
     }
 }
-#[test]
-fn mul_equivalence() {
+#[test] fn mul_equivalence() {
 	let lhs = Word(vec![1,2,3,4,2,3,4,9,2,3,2,3,4,2,2]);
 	let rhs = Word(vec![1,2,3,42,343,464,334,33,2,3,2,5,3,43,2,1]);
 	assert_eq!((lhs.clone() * rhs.clone()).to_tableau(), lhs.to_tableau() * rhs.to_tableau());
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Clone)]
-struct Pair<T : PartialEq + Ord>(T, T);
-/* impl<T : PartialEq + Ord> PartialOrd for Pair<T> {
-	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-		if self.0 < other.0 {
-			Some(Ordering::Less)
-		} else if self.0 > other.0 {
-			Some(Ordering::Greater)
-		} else {
-			if self.1 < other.1 {
-				Some(Ordering::Less)
-			} else if self.1 > other.1 {
-				Some(Ordering::Greater)
-			} else {
-				Some(Ordering::Equal)
-			}
-		}
-	}
-}
-impl<T : PartialEq + Ord> Ord for Pair<T> {
-	fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
-    }
-} */
-#[test]
-fn pair_order() {
-	assert!(Pair(1, 2) < Pair(2, 1));
-	assert!(Pair(2, 1) < Pair(2, 2));
-	assert!(Pair(2, 2) == Pair(2, 2));
-}
-impl<T : PartialEq + Ord> Pair<T> {
-	pub fn from((index, value) : (T, T)) -> Pair<T> {
-		Pair(index, value)
-	}
-
-	pub fn rev(self) -> Pair<T> {
-		Pair(self.1, self.0)
-	}
-}
-
+use tools::Pair;
 #[derive(Debug, Eq, Clone)]
 pub struct TwoRowedArray(Vec<Pair<usize>>);
 impl TwoRowedArray {
+	pub fn new() -> TwoRowedArray {
+		TwoRowedArray(Vec::new())
+	}
+
 	pub fn from_pairs(v : Vec<(usize, usize)>) -> TwoRowedArray {
 		TwoRowedArray(v.into_iter().map(Pair::from).collect())
 	}
@@ -730,21 +1147,28 @@ impl TwoRowedArray {
 		pub fn bottom_row(&self) -> Vec<usize> {self.index_row()}
 
 	/// for the permutations, it is just the inverse
-	pub fn inverse(self) -> TwoRowedArray {
-		TwoRowedArray(self.0.into_iter().map(Pair::rev).collect())
+	pub fn inverse(&self) -> TwoRowedArray {
+		TwoRowedArray(self.0.clone().into_iter().map(Pair::rev).collect())
 	}
 
-	// pub fn push(&mut self, (index, value) : (usize, usize)) {
-	// 	self.0.push(Pair::from((index, value)));
-	// }
+	pub fn is_empty(&self) -> bool {
+		self.0.is_empty()
+	}
+
+	pub fn push(&mut self, (index, value) : (usize, usize)) {
+		self.0.push(Pair::from((index, value)));
+	}
+
+	pub fn iter(&self) -> impl Iterator<Item=(usize, usize)> + '_ {
+		self.0.iter().cloned().map(|Pair(a, b)| (a, b))
+	}
 }
 impl PartialEq for TwoRowedArray {
 	fn eq(&self, other: &Self) -> bool {
         &self.lexicographic_ordered().0 == &other.lexicographic_ordered().0
     }
 }
-#[test]
-fn from_two_arrays() {
+#[test] fn two_arrays() {
 	assert_eq!(
 		TwoRowedArray::from_two_arrays(vec![1,2,3,4,2,4,4,2], vec![3,4,2,5,4,2,3,2]),
 		TwoRowedArray::from_pairs(
@@ -752,13 +1176,15 @@ fn from_two_arrays() {
 		)
 	);
 }
-#[test]
-fn sort() {
+#[test] fn sort() {
 	let array = TwoRowedArray::from_two_arrays(vec![1,2,3,4,2,4,4,2], vec![3,4,2,5,4,2,3,2]).lexicographic_ordered();
-	assert_eq!(array, TwoRowedArray::from_two_arrays(
-		vec![1,2,2,2,3,4,4,4],
-		vec![3,2,4,4,2,2,3,5]
-	));
+	assert_eq!(
+		array.0,
+		TwoRowedArray::from_two_arrays(
+			vec![1,2,2,2,3,4,4,4],
+			vec![3,2,4,4,2,2,3,5]
+		).0
+	);
 }
 
 impl fmt::Display for TwoRowedArray {
@@ -769,94 +1195,64 @@ impl fmt::Display for TwoRowedArray {
 		)
     }
 }
-#[test]
-fn print_array() {
+#[test] fn display_array() {
 	let array = TwoRowedArray::from_two_arrays(vec![1,2,3,4,2,4,4,2], vec![3,4,2,5,4,2,3,2]);
 	assert_eq!(format!("{}", array), "1 2 3 4 2 4 4 2 \n3 4 2 5 4 2 3 2 ");
 }
-#[allow(non_snake_case)]
 impl Word {
-	pub fn to_TwoRowedArray_0(&self) -> TwoRowedArray {
+	pub fn to_two_rowed_array_0(&self) -> TwoRowedArray {
 		TwoRowedArray::from_pairs(self.0.iter().cloned().enumerate().collect())
 	}
 
-	pub fn to_TwoRowedArray_1(&self) -> TwoRowedArray {
+	pub fn to_two_rowed_array_1(&self) -> TwoRowedArray {
 		TwoRowedArray::from_pairs(self.0.iter().cloned().enumerate().map(|(index, value)| {(index + 1, value)}).collect())
 	}
 }
 
-// for tableau
-impl SkewTableau {
+impl Tableau {
 	/// simply put a element on this row
-	pub fn place(&mut self, row_index : usize, value : usize) {
-		self.0[row_index].push(Some(value));
+	pub fn place_at_row(&mut self, row_index : usize, value : usize) {
+		self.0[row_index].push(value);
 	}
 	
-	pub fn pop_at(&mut self, row_index : usize) -> usize {
+	pub fn pop_at_row(&mut self, row_index : usize) -> usize {
 		if let Some(value) = self.0[row_index].pop() {
 			self.0.strip();
-			value.unwrap()
+			value
 		} else {
 			panic!("this row is empty, you cannot pop at here");
 		}
 	}
-
-	/// return the row_index of the greatest element
-	/// pick the rightmost within the equals
-	/// + for tableau
-	pub fn greatest_row(&self) -> Option<usize> {
-		// println!("self: {:?}", self);
-		// println!("{:?}", self.is_empty());
-		if self.is_empty() {
-			return None;
-		}
-		let mut gest : Option<usize> = None;
-		let mut aim_index = usize::MAX;
-		for index in self.shape().outer.rows_of_corners() {
-			let tmp = *self.0.iter().nth(index).unwrap().last().unwrap();
-			if tmp > gest {
-				aim_index = index;
-				// println!("aim: {}", aim_index);
-				gest = tmp;
-			} else if tmp == gest && index < aim_index {
-				aim_index = index;
-				// println!("aim: {}", aim_index);
-			}
-		}
-		Some(aim_index)
-	}
 }
-#[test]
-fn place_and_pop() {
-	let mut tableau = SkewTableau::from(vec![
-        vec![Some(1), Some(2), Some(3)],
-        vec![Some(2), Some(3)],
-        vec![Some(4)],
+#[test] fn place_and_pop() {
+	let mut tableau = Tableau::from(vec![
+        vec![1, 2, 3],
+        vec![2, 3],
+        vec![4],
 	]);
-	tableau.pop_at(2);
+	tableau.pop_at_row(2);
 	// println!("{}", tableau);
-	tableau.pop_at(1);
+	tableau.pop_at_row(1);
 	// println!("{}", tableau);
 }
-#[test]
-fn greatest_row() {
-	let mut tableau = SkewTableau::from(vec![
-        vec![Some(1), Some(2), Some(3)],
-        vec![Some(2), Some(3)],
-        vec![Some(4)],
+#[test] fn greatest_row() {
+	let mut tableau = Tableau::from(vec![
+        vec![1, 2, 3],
+        vec![2, 3],
+        vec![4],
 	]);
 	assert_eq!(tableau.greatest_row(), Some(2));
-	tableau.pop_at(2);
-	println!("{}", tableau);
+	tableau.pop_at_row(2);
+	// println!("{}", tableau);
 	assert_eq!(tableau.greatest_row(), Some(0));
-	tableau.pop_at(0);
-	println!("{}", tableau);
+	tableau.pop_at_row(0);
+	// println!("{}", tableau);
 	assert_eq!(tableau.greatest_row(), Some(1));
 }
 
-// + to Tableau
-#[derive(Debug)]
-pub struct TableauPair(SkewTableau, SkewTableau);
+// --------------------------------------------------------------
+#[derive(Debug, PartialEq, Eq)]
+pub struct TableauPair(Tableau, Tableau);
 impl MathClass for TableauPair {
 	fn check(&self) -> Result<(), String> {
 		if self.0.shape() != self.1.shape() {
@@ -874,7 +1270,7 @@ impl fmt::Display for TableauPair {
 
 impl TableauPair {
 	#[allow(non_snake_case)]
-	pub fn from(P : SkewTableau, Q : SkewTableau) -> TableauPair {
+	pub fn from(P : Tableau, Q : Tableau) -> TableauPair {
 		let T = TableauPair(P, Q);
 		if let Err(s) = T.check() {
 			panic!("TableauPair: {}", s);
@@ -883,18 +1279,17 @@ impl TableauPair {
 	}
 
 	/// P in (P, Q)
-	pub fn value_tableau(&self) -> SkewTableau {
+	pub fn value_tableau(&self) -> Tableau {
 		self.0.clone()
 	}
 
 	/// Q in (P, Q)
-	pub fn index_tableau(&self) -> SkewTableau {
+	pub fn index_tableau(&self) -> Tableau {
 		self.1.clone()
 	}
-	pub fn insertion_tableau(&self) -> SkewTableau {self.index_tableau()}
+	pub fn insertion_tableau(&self) -> Tableau {self.index_tableau()}
 
-	#[allow(non_snake_case)]
-	pub fn to_TwoRowedArray(&self) -> TwoRowedArray {
+	pub fn to_two_rowed_array(&self) -> TwoRowedArray {
 		let mut v = Vec::new();
 
 		#[allow(non_snake_case)]
@@ -904,31 +1299,470 @@ impl TableauPair {
 
 		while let Some(row_index) = Q.greatest_row() {
 			// println!("{}", row_index);
-			v.push((Q.pop_at(row_index), P.reverse_bumping(row_index)));
+			v.push((Q.pop_at_row(row_index), P.reverse_bumping(row_index)));
 		}
 
 		v.reverse();
 		TwoRowedArray::from_pairs(v)
 	}
+
+	// interchange the P and Q in (P, Q),
+	pub fn rev(&self) -> TableauPair {
+		TableauPair::from(self.index_tableau(), self.value_tableau())
+	}
 }
 impl TwoRowedArray {
 	pub fn to_tableau_pair(&self) -> TableauPair {
 		#[allow(non_snake_case)]
-		let mut P = SkewTableau::new();
+		let mut P = Tableau::new();
 		#[allow(non_snake_case)]
-		let mut Q = SkewTableau::new();
+		let mut Q = Tableau::new();
 		for &Pair(index, value) in self.lexicographic_ordered().0.iter() {
-			Q.place(P.row_bumping(value), index);
+			Q.place_at_row(P.row_bumping(value), index);
 		}
 		
 		TableauPair(P, Q)
 	}
 }
-#[test]
-fn conversion() {
+#[test] fn conversion() {
 	let array = TwoRowedArray::from_two_arrays(vec![1,1,1,2,2,3,3,3,3], vec![1,2,2,1,2,1,1,1,2]).lexicographic_ordered();
-	#[allow(non_snake_case)]
-	let T = array.to_tableau_pair();
-	assert_eq!(T.to_TwoRowedArray(), array);
+	let t = array.to_tableau_pair();
+	assert_eq!(t.to_two_rowed_array(), array);
+
+	assert_eq!(t.rev(), array.inverse().to_tableau_pair());
 }
-// */
+
+// ----------------------------------------------------------------
+use tools::Layout;
+///   --- n ---
+/// |  1 2 3 4
+/// m  3 4 3 2
+/// |  2 3 4 5
+#[derive(Debug, PartialEq)]
+pub struct Matrix {
+	inner : Vec<usize>,
+	layout : Layout,
+}
+impl MathClass for Matrix {
+	fn check(&self) -> Result<(), String> {
+		if self.inner.len() == self.layout.m * self.layout.n {
+			Ok(())
+		} else {
+			Err("Matrix: size of matrix differs from the layout".into())
+		}
+	}
+}
+impl Matrix {
+	pub fn from(v : Vec<usize>, m : usize, n : usize) -> Matrix {
+		let matrix = Matrix {
+			inner : v,
+			layout : Layout {n, m},
+		};
+		if let Err(s) = matrix.check() {
+			panic!(s);
+		}
+		matrix
+	}
+
+	pub fn from_layout(m : usize, n : usize) -> Matrix {
+		Matrix {
+			inner : vec![0 ; m * n],
+			layout : Layout {n, m},
+		}
+	}
+
+	pub fn transpose(&self) -> Matrix {
+		let length = self.layout.m * self.layout.n;
+		let mut v = vec![0 ; length];
+		for index in 0..length {
+			v[self.layout.transpose_index(index)] = self.inner[index];
+		}
+		Matrix::from(v, self.layout.n, self.layout.m)
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.inner.is_empty()
+	}
+
+	pub fn is_zero(&self) -> bool {
+		self.is_empty() || self.inner.iter().all(|e| *e == 0)
+	}
+}
+impl fmt::Display for Matrix {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let iter = self.inner.chunks(self.layout.n);
+		write!(f, "┌ {}┐\n{}└ {}┘",
+			"  ".repeat(self.layout.n),
+
+			iter.fold(String::new(), |acc, line| {
+				format!("{}{}│\n", acc, line.iter().fold(String::from("│ "), |acc, item| {format!("{}{} ", acc, item)}))
+			}),
+			
+			"  ".repeat(self.layout.n)
+		)
+
+		// write!(f, "┌ {}┐\n","  ".repeat(self.layout.n))?;
+		// write!(f, "{}",
+		// 	format!("│ {}│\n", "■ ".repeat(self.layout.n)).as_str().repeat(self.layout.m)
+		// )?;
+		// write!(f, "└ {}┘","  ".repeat(self.layout.n))
+	}
+}
+
+impl TwoRowedArray {
+	pub fn to_matrix_0(&self) -> Matrix {
+		if self.is_empty() {
+			Matrix { inner : Vec::new(), layout : Layout {n : 0, m : 0} }
+		} else {
+			let m = *self.index_row().iter().max().unwrap() + 1;
+			let n = *self.value_row().iter().max().unwrap() + 1;
+	
+			let mut matrix = Matrix::from_layout(m, n);
+
+			for (i, j) in self.iter() {
+				matrix.inner[matrix.layout.index_of(i, j)] += 1;
+			}
+
+			matrix
+		}
+
+	}
+	pub fn to_matrix_1(&self) -> Matrix {
+		if self.is_empty() {
+			Matrix { inner : Vec::new(), layout : Layout {n : 0, m : 0} }
+		} else {
+			let m = *self.index_row().iter().max().unwrap();
+			let n = *self.value_row().iter().max().unwrap();
+	
+			let mut matrix = Matrix::from_layout(m, n);
+
+			for (i, j) in self.iter() {
+				matrix.inner[matrix.layout.index_of(i - 1, j - 1)] += 1;
+			}
+
+			matrix
+		}
+
+	}
+}
+impl Matrix {
+	pub fn to_two_rowed_array_0(&self) -> TwoRowedArray {
+		let mut array = TwoRowedArray::new();
+		for i in 0..self.layout.m { // rows
+			for j in 0..self.layout.n { // cols
+				for _ in 0..self.inner[self.layout.index_of(i, j)] {
+					array.push((i, j));
+				}
+			}
+		}
+		array
+	}
+
+	pub fn to_two_rowed_array_1(&self) -> TwoRowedArray {
+		let mut array = TwoRowedArray::new();
+		for i in 0..self.layout.m { // rows
+			for j in 0..self.layout.n { // cols
+				for _ in 0..self.inner[self.layout.index_of(i, j)] {
+					array.push((i + 1, j + 1));
+				}
+			}
+		}
+		array
+	}
+}
+#[test] fn matrix_and_array() {
+	let array = TwoRowedArray::from_two_arrays(vec![1,1,1,2,2,3,3,3,3], vec![1,2,2,1,2,1,1,1,2]);
+	// println!("{}", array);
+	// println!("{}", array.to_matrix_1());
+	assert_eq!(array, array.to_matrix_0().to_two_rowed_array_0());
+	assert_eq!(array, array.to_matrix_1().to_two_rowed_array_1());
+}
+
+///        --- n ---
+///    1   | 3   | 4
+/// |    2 |     |   5
+/// m  --- | --- | ---
+/// |  3   | 5   | 6
+///      4 |     |   7
+#[derive(Debug, PartialEq)]
+pub struct BallMatrix {
+	inner : Vec<Range<usize>>,
+	layout : Layout,
+}
+impl MathClass for BallMatrix {
+	fn check(&self) -> Result<(), String> {
+		if self.inner.len() != self.layout.m * self.layout.n {
+			Err("BallMatrix: size of matrix differs from the layout".into())
+		} else {
+			for index in 0..self.inner.len() {
+				if !match (self.layout.west_one(index), self.layout.north_one(index)) {
+					(None, None) => true,
+					(Some(west_one), None) => self.inner[index].start == self.inner[west_one].end,
+					(None, Some(north_one)) => self.inner[index].start == self.inner[north_one].end,
+					(Some(west_one), Some(north_one)) => self.inner[index].start == max(self.inner[west_one].end, self.inner[north_one].end),
+				} {
+					return Err("BallMatrix: error on the markup of Balls ".into())
+				}
+			}
+			Ok(())
+		}
+	}
+}
+impl BallMatrix {
+	pub fn from(v : Vec<(usize, usize)>, m : usize, n : usize) -> BallMatrix {
+		let matrix = BallMatrix {
+			inner : v.into_iter().map(|(a, b)| {a..b}).collect(),
+			layout : Layout {n, m},
+		};
+		if let Err(s) = matrix.check() {
+			panic!(s);
+		}
+		matrix
+	}
+	pub fn is_empty(&self) -> bool {
+		self.inner.is_empty() || self.inner.last().unwrap().end - self.inner[0].start == 0 // ?
+	}
+
+	pub fn number_range(&self) -> Range<usize> {
+		if self.is_empty() {
+			0..0
+		} else {
+			self.inner[0].start..self.inner.last().unwrap().end
+		}
+	}
+}
+impl fmt::Display for BallMatrix {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let iter = self.inner.chunks(self.layout.n);
+		write!(f, "{}",
+			iter.fold(String::new(), |acc, line| {
+				format!("{}{}\n {}\n", acc, line.iter().fold(String::new(), |acc, item| {format!("{}{:#?}\t|", acc, item)}), "-------|".repeat(self.layout.n))
+			})
+		)
+	}
+}
+#[test] fn ball_matrix_from_tuple() {
+	assert!(
+		std::panic::catch_unwind(|| {
+			BallMatrix::from(vec![
+				(1,2), (1,2),
+				(2,3), (3,4),
+				(3,5), (5,6),
+			], 3, 2);
+		}).is_err()
+	);
+
+	// println!("{}", BallMatrix::from(vec![ (1,2), (2,2), (2,3), (3,4), (3,5), (5,6), ], 3, 2));
+}
+
+impl BallMatrix {
+	pub fn to_matrix(&self) -> Matrix {
+		Matrix::from(self.inner.iter().map(|e| {e.len()}).collect(), self.layout.m, self.layout.n)
+	}
+
+	/// get the a row for P in (P, Q)
+	fn read_col_0(&self) -> Vec<usize> {
+		let mut v = Vec::new();
+		
+		for i in self.number_range() { // the largest markup on the balls
+			for col in 0..self.layout.n {
+
+				if i < self.inner[self.layout.index_of(self.layout.m - 1, col)].end {
+					// if i is smaller than (or equal to) the bigest element is this col, it must appear in this col or past cols
+					v.push(col);
+					break;
+				}
+				// if i is bigger than the bigest element is this col (>= the b in [a, b) of bottom block), go to next col
+			}
+		}
+		v
+	}
+
+	/// get the a row for P in (P, Q)
+	fn read_col_1(&self) -> Vec<usize> {
+		let mut v = Vec::new();
+		
+		for i in self.number_range() { // the largest markup on the balls
+			for col in 0..self.layout.n {
+
+				if i < self.inner[self.layout.index_of(self.layout.m - 1, col)].end {
+					// if i is smaller than (or equal to) the bigest element is this col, it must appear in this col or past cols
+					v.push(col + 1);
+					break;
+				}
+				// if i is bigger than the bigest element is this col (>= the b in [a, b) of bottom block), go to next col
+			}
+		}
+		v
+	}
+	/// get the a row for Q in (P, Q)
+	fn read_row_0(&self) -> Vec<usize> {
+		let mut v = Vec::new();
+		
+		for i in self.number_range() { // the largest markup on the balls
+			for row in 0..self.layout.m {
+
+				if i < self.inner[self.layout.index_of(row, self.layout.n - 1)].end {
+					// if i is smaller than (or equal to) the bigest element is this row, it must appear in this row or past rows
+					v.push(row);
+					break;
+				}
+				// if i is bigger than the bigest element is this row (>= the b in [a, b) of bottom block), go to next row
+			}
+		}
+		v
+	}
+
+	/// get the a row for Q in (P, Q)
+	fn read_row_1(&self) -> Vec<usize> {
+		let mut v = Vec::new();
+		
+		for i in self.number_range() { // the largest markup on the balls
+			for row in 0..self.layout.m {
+
+				if i < self.inner[self.layout.index_of(row, self.layout.n - 1)].end {
+					// if i is smaller than (or equal to) the bigest element is this row, it must appear in this row or past rows
+					v.push(row + 1);
+					break;
+				}
+				// if i is bigger than the bigest element is this row (>= the b in [a, b) of bottom block), go to next row
+			}
+		}
+		v
+	}
+
+	pub fn to_new_matrix(&self) -> Matrix {
+		let mut matrix = Matrix::from_layout(self.layout.m, self.layout.n);
+		// * I run it from above to below rather than left to right in the book page 43
+		for index in 0..self.inner.len() {
+			
+			for k in self.inner[index].clone() { // ? clone // the markup of ball (a ball numbered with k)
+				if let Some(mut another) = self.layout.southwest_one(index) {
+					loop {
+						another = match compare(&self.inner[another], k) {
+							Ordering::Less => if let Some(west_one) = self.layout.west_one(another) {
+								west_one
+							} else {
+								break;
+							},
+							Ordering::Greater => if let Some(south_one) = self.layout.south_one(another) {
+								south_one
+							} else {
+								break;
+							},
+							Ordering::Equal => {
+								matrix.inner[self.layout.index_of(self.layout.row(another), self.layout.col(index))] += 1;
+								// simply speaking, there will be a new ball in the the block in the col of index block and row of another block
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		matrix
+	}
+
+	pub fn to_new_ball_matrix_0(&self) -> BallMatrix {
+		self.to_new_matrix().to_ball_matrix_0()
+	}
+
+	pub fn to_new_ball_matrix_1(&self) -> BallMatrix {
+		self.to_new_matrix().to_ball_matrix_1()
+	}
+}
+impl Matrix {
+	pub fn to_ball_matrix_0(&self) -> BallMatrix {
+		let mut v = vec![(0,0) ; self.inner.len()];
+
+		for index in 0..self.inner.len() {
+			v[index].0 = match (self.layout.west_one(index), self.layout.north_one(index)) {
+				(None, None) => 0, // *************** to_ball_matrix_0
+				(None, Some(north_one)) => v[north_one].1,
+				(Some(west_one), None) => v[west_one].1,
+				(Some(west_one), Some(north_one)) => max(v[north_one].1, v[west_one].1),
+			};
+			v[index].1 = v[index].0 + self.inner[index];
+		}
+
+		BallMatrix::from(v, self.layout.m, self.layout.n)
+	}
+
+	pub fn to_ball_matrix_1(&self) -> BallMatrix {
+		let mut v = vec![(0,0) ; self.inner.len()];
+
+		for index in 0..self.inner.len() {
+			v[index].0 = match (self.layout.west_one(index), self.layout.north_one(index)) {
+				(None, None) => 1, // *************** to_ball_matrix_1
+				(None, Some(north_one)) => v[north_one].1,
+				(Some(west_one), None) => v[west_one].1,
+				(Some(west_one), Some(north_one)) => max(v[north_one].1, v[west_one].1),
+			};
+			v[index].1 = v[index].0 + self.inner[index];
+		}
+
+		BallMatrix::from(v, self.layout.m, self.layout.n)
+	}
+
+	pub fn to_new_matrix(&self) -> Matrix {
+		self.to_ball_matrix_0().to_new_matrix()
+		// which is equal to
+		// self.to_ball_matrix_1().to_new_matrix()
+	}
+
+	pub fn to_tableau_pair_0(&self) -> TableauPair {
+		let mut vec_value = Vec::new();
+		let mut vec_index = Vec::new();
+		let mut bm = self.to_ball_matrix_0();
+		while !bm.is_empty() {
+			vec_value.push(bm.read_col_0());
+			vec_index.push(bm.read_row_0());
+			bm = bm.to_new_ball_matrix_0();
+		}
+		
+		TableauPair::from(Tableau::from(vec_value), Tableau::from(vec_index))
+	}
+
+	pub fn to_tableau_pair_1(&self) -> TableauPair {
+		let mut vec_value = Vec::new();
+		let mut vec_index = Vec::new();
+		let mut bm = self.to_ball_matrix_1();
+		while !bm.is_empty() {
+			vec_value.push(bm.read_col_1());
+			vec_index.push(bm.read_row_1());
+			bm = bm.to_new_ball_matrix_1();
+		}
+		
+		TableauPair::from(Tableau::from(vec_value), Tableau::from(vec_index))
+	}
+}
+impl TableauPair {
+	pub fn to_matrix_0() -> Matrix {
+		unimplemented!()
+	}
+}
+#[test] fn matrix_and_ball_matrix() {
+	let m = Matrix::from(vec![1, 2, 1, 1, 3, 1], 3, 2);
+	// println!("{}", m.to_ball_matrix_1());
+	assert_eq!(m.to_ball_matrix_1().to_matrix(), m);
+	assert_eq!(m.to_ball_matrix_0().to_matrix(), m);
+	assert_ne!(m.to_ball_matrix_1(), m.to_ball_matrix_0());
+
+	// println!("{}", m);
+	// println!("{}", m.to_new_matrix());
+	// println!("{}", m.to_new_matrix().to_new_matrix());
+	assert!(m.to_new_matrix().to_new_matrix().is_zero())
+}
+#[test] fn matrix_and_tableau_pair() {
+	let m = Matrix::from(vec![1, 2, 1, 1, 3, 1], 3, 2);
+	// println!("{:?}", m.to_ball_matrix_1().read_col_1());
+	// println!("{:?}", m.to_ball_matrix_0().read_col_1());
+	assert_eq!(m.to_ball_matrix_1().read_col_1(), m.to_ball_matrix_0().read_col_1());
+	assert_eq!(m.to_tableau_pair_1().rev(), m.transpose().to_tableau_pair_1());
+
+	let array = TwoRowedArray::from_two_arrays(vec![1,1,1,2,2,3,3,3,3], vec![1,2,2,1,2,1,1,1,2]);
+	// println!("{}", array.to_tableau_pair());
+	assert_eq!(array.to_tableau_pair(), array.to_matrix_0().to_tableau_pair_0());
+	assert_eq!(array.to_tableau_pair(), array.to_matrix_1().to_tableau_pair_1());
+}
