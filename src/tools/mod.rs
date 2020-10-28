@@ -7,7 +7,7 @@ use std::iter::{repeat};
 use std::fmt;
 
 #[derive(Eq, Clone)]
-pub (super) struct VecTail<T : PartialEq> {
+pub(super) struct VecTail<T : PartialEq> {
 	heads : Vec<T>,
 	tail : T,
 	length : usize,
@@ -205,7 +205,7 @@ impl<T : PartialEq + Clone> IndexMut<usize> for VecTail<T> {
 // -----------------------------------------------------
 
 #[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Clone)]
-pub (super) struct Pair<T : PartialEq + Ord>(pub T, pub T);
+pub(super) struct Pair<T : PartialEq + Ord>(pub T, pub T);
 #[test] fn pair_order() {
 	assert!(Pair(1, 2) < Pair(2, 1));
 	assert!(Pair(2, 1) < Pair(2, 2));
@@ -228,7 +228,7 @@ impl<T : PartialEq + Ord> Pair<T> {
 /// m  ■ ■ ■ ■
 /// |  ■ ■ ■ ■
 #[derive(PartialEq)]
-pub (super) struct Layout {
+pub(super) struct Layout {
 	pub m : usize,
 	pub n : usize,
 }

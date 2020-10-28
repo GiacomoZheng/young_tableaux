@@ -1,8 +1,8 @@
 #[allow(unused_imports)]
 use young_tableaux::{
-	Diagram, SkewDiagram,
-	StandardTableau, // ? Do I need it?
-		Tableau, SkewTableau,
+	Diagram, SkewDiagram, // + Partition
+	Filling, Numbering, 
+	Tableau, StandardTableau, SkewTableau,
 	Word, // + ReverseLatticeWord
 		TwoRowedArray, // + Permutation
 	TableauPair,

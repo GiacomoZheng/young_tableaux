@@ -1,6 +1,6 @@
 use std::fmt;
 use std::cmp::{PartialEq, PartialOrd, Ordering, max};
-use std::ops::{Mul, Range};
+use std::ops::{Mul, Range, Deref, DerefMut};
 
 mod tools;
 use tools::order::{is_strictly_increasing, is_weakly_increasing, replace_greatest_predecessor, replace_least_successor, compare};
@@ -237,129 +237,26 @@ impl Mul for Diagram {
 }
 
 // -------------------------------------------------------------
-/// ? Do I really need this?
 #[derive(PartialEq, Eq, Debug, Clone)]
-pub struct StandardTableau(VecTail<Vec<usize>>);
-impl MathClass for StandardTableau {
-	// ? too complicated
-	// ! direct copied from below
+pub struct Filling(VecTail<Vec<usize>>);
+impl MathClass for Filling {
 	fn check(&self) -> Result<(), String> {
 		self.shape().check()?;
-
-		for row in self.0.iter_finite() {
-			if let Err(s) = is_strictly_increasing(row) { // * strictly
-				return Err(format!("rows in tableau {}", s));
-			}
-		}
-		for col in self.transpose().iter_finite() {
-			if let Err(s) = is_strictly_increasing(col) {
-				return Err(format!("cols in tableau {}", s))
-			}
-		}
 		Ok(())
 	}
 }
-impl StandardTableau {
-	pub fn new() -> StandardTableau {
-		StandardTableau(VecTail::new())
+impl Filling {
+	pub fn new() -> Filling {
+		Filling(VecTail::new())
 	}
 
-	pub fn from(v : Vec<Vec<usize>>) -> StandardTableau {
-		let tableau = StandardTableau(VecTail::from(v, Vec::new()));
+	pub fn from(v : Vec<Vec<usize>>) -> Filling {
+		let filling = Filling(VecTail::from(v, Vec::new()));
 
-		if let Err(s) = tableau.check() {
-			panic!("StandardTableau: {}", s);
+		if let Err(s) = filling.check() {
+			panic!("Filling: {}", s);
 		}
-		tableau
-	}
-
-	pub fn is_empty(&self) -> bool {
-		self.0.is_empty()
-	}
-
-	// ? to complicated 
-	// ! direct copied from below
-	fn transpose(&self) -> VecTail<Vec<usize>> {
-		let mut v = Vec::new();
-		for index in 0..self.0[0].len() {
-			let mut tmp_v = Vec::new();
-			for row in self.0.iter() {
-				if index < row.len() {
-					tmp_v.push(row[index]);
-				} else {
-					break;
-				}
-			}
-			v.push(tmp_v);
-		}
-		VecTail::from(v, Vec::new())
-	}
-
-	pub fn shape(&self) -> Diagram {
-		Diagram::from(self.0.iter_finite().map(|v| {v.iter().count()}).collect())
-	}
-
-	pub fn to_tableau(self) -> Tableau {
-		Tableau(self.0)
-	}
-
-	pub fn to_skew_tableau(self) -> SkewTableau {
-		SkewTableau::from(
-			self.0.into_iter_finite().map(|v| {
-				v.into_iter().map(|e| Some(e)).collect()
-			}).collect()
-		)
-	}
-}
-
-impl fmt::Display for StandardTableau {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		for v in self.0.iter_finite() {
-			for e in v.iter() {
-				write!(f, "{} ", e)?;
-			}
-			writeln!(f, "")?;
-		}
-		write!(f, "")
-    }
-}
-
-#[derive(PartialEq, Eq, Debug, Clone)]
-pub struct Tableau(VecTail<Vec<usize>>);
-impl MathClass for Tableau {
-	// fn check(&self) -> Result<(), String> {
-	// 	self.to_skew_tableau().check()
-	// }
-	// ? too complicated
-	// ! direct copied from below
-	fn check(&self) -> Result<(), String> {
-		self.shape().check()?;
-
-		for row in self.0.iter_finite() {
-			if let Err(s) = is_weakly_increasing(row) {
-				return Err(format!("rows in tableau {}", s));
-			}
-		}
-		for col in self.pre_transpose().iter_finite() {
-			if let Err(s) = is_strictly_increasing(col) {
-				return Err(format!("cols in tableau {}", s))
-			}
-		}
-		Ok(())
-	}
-}
-impl Tableau {
-	pub fn new() -> Tableau {
-		Tableau(VecTail::new())
-	}
-
-	pub fn from(v : Vec<Vec<usize>>) -> Tableau {
-		let tableau = Tableau(VecTail::from(v, Vec::new()));
-
-		if let Err(s) = tableau.check() {
-			panic!("Tableau: {}", s);
-		}
-		tableau
+		filling
 	}
 
 	pub fn is_empty(&self) -> bool {
@@ -386,6 +283,153 @@ impl Tableau {
 
 	pub fn shape(&self) -> Diagram {
 		Diagram::from(self.0.iter_finite().map(|v| {v.iter().count()}).collect())
+	}
+}
+impl Filling { // convert -- similiarly
+	pub fn to_numbering(self) -> Numbering {
+		let numbering = Numbering {
+			refer : self
+		};
+		numbering.check().unwrap();
+		numbering
+	}
+
+	pub fn to_tableau(self) -> Tableau {
+		let tableau = Tableau {
+			refer : self
+		};
+		tableau.check().unwrap();
+		tableau
+	}
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct Numbering {
+	refer : Filling,
+}
+use std::collections::HashSet;
+impl MathClass for Numbering {
+	fn check(&self) -> Result<(), String> {
+		self.refer.check()?;
+
+		if self.0.iter_finite().flatten().collect::<HashSet<_>>().len() != self.shape().n() {
+			Err("Numbering should have distinct entries".into())
+		} else {
+			Ok(())
+		}
+	}
+}
+#[test] fn numbering() {
+	let numbering = Numbering {
+		refer : Filling::from(vec![vec![1,2,3,4], vec![2,3,4]])
+	};
+	assert!(numbering.check().is_err());
+	let numbering = Numbering {
+		refer : Filling::from(vec![vec![1,2,3,4], vec![5,6,7]])
+	};
+	assert!(numbering.check().is_ok());
+}
+impl Deref for Numbering {
+	type Target = Filling;
+	fn deref(&self) -> &Self::Target {
+        &self.refer
+    }
+}
+impl DerefMut for Numbering {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		&mut self.refer
+    }
+}
+impl Numbering {
+	pub fn new() -> Numbering {
+		Numbering {
+			refer : Filling::new()
+		}
+	}
+
+	pub fn from(v : Vec<Vec<usize>>) -> Numbering {
+		let numbering = Numbering {
+			refer : Filling::from(v)
+		};
+
+		if let Err(s) = numbering.check() {
+			panic!("Numbering: {}", s);
+		}
+		numbering
+	}
+
+	// ? to complicated 
+	// ! direct copied from below
+	pub fn transpose(&self) -> Numbering {
+		Numbering {
+			refer : Filling(self.pre_transpose())
+		}
+	}
+}
+impl Numbering { // convert -- similiarly
+	pub fn to_filling(self) -> Filling {
+		self.refer
+	}
+
+	pub fn to_tableau(self) -> Tableau {
+		self.to_filling().to_tableau()
+	}
+	
+	pub fn to_standard_tableau(self) -> StandardTableau {
+		self.to_filling().to_tableau().to_standard_tableau()
+	}
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct Tableau {
+	refer : Filling,
+}
+impl Deref for Tableau {
+	type Target = Filling;
+	fn deref(&self) -> &Self::Target {
+        &self.refer
+    }
+}
+impl DerefMut for Tableau {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		&mut self.refer
+    }
+}
+impl MathClass for Tableau {
+	// ? too complicated
+	// ! direct copied from below
+	fn check(&self) -> Result<(), String> {
+		self.refer.check()?;
+
+		for row in self.0.iter_finite() {
+			if let Err(s) = is_weakly_increasing(row) {
+				return Err(format!("rows in tableau {}", s));
+			}
+		}
+		for col in self.pre_transpose().iter_finite() {
+			if let Err(s) = is_strictly_increasing(col) {
+				return Err(format!("cols in tableau {}", s))
+			}
+		}
+		Ok(())
+	}
+}
+impl Tableau {
+	pub fn new() -> Tableau {
+		Tableau {
+			refer : Filling::new()
+		}
+	}
+
+	pub fn from(v : Vec<Vec<usize>>) -> Tableau {
+		let tableau = Tableau{
+			refer : Filling::from(v)
+		};
+
+		if let Err(s) = tableau.check() {
+			panic!("Tableau: {}", s);
+		}
+		tableau
 	}
 
 	/// return the row_index of the greatest element
@@ -456,15 +500,20 @@ impl Tableau {
 	}
 		pub fn weight_1(&self) -> Vec<usize> {self.content_1()}
 		pub fn type_1(&self) -> Vec<usize> {self.content_1()}
-
+}
+impl Tableau { // convert -- similiarly
+	pub fn to_filling(self) -> Filling {
+		self.refer
+	}
+	
 	/// panic if it do not satisfies the criteria of StandardTableau
 	pub fn to_standard_tableau(self) -> StandardTableau {
-		StandardTableau::from(self.0.into_iter_finite().collect()) 
+		StandardTableau::from(self.refer.0.into_iter_finite().collect()) 
 	}
 
 	pub fn to_skew_tableau(self) -> SkewTableau {
 		SkewTableau::from(
-			self.0.into_iter_finite().map(|v| {
+			self.refer.0.into_iter_finite().map(|v| {
 				v.into_iter().map(|e| Some(e)).collect()
 			}).collect()
 		)
@@ -600,6 +649,90 @@ impl fmt::Display for Tableau {
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
+pub struct StandardTableau {
+	refer : Tableau
+}
+impl MathClass for StandardTableau {
+	// ? too complicated
+	fn check(&self) -> Result<(), String> {
+		self.shape().check()?;
+
+		for col in self.pre_transpose().iter_finite() {
+			if let Err(s) = is_strictly_increasing(col) {
+				return Err(format!("cols in tableau {}", s))
+			}
+		}
+		Ok(())
+	}
+}
+impl Deref for StandardTableau {
+	type Target = Tableau;
+	fn deref(&self) -> &Self::Target {
+        &self.refer
+    }
+}
+impl DerefMut for StandardTableau {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		&mut self.refer
+    }
+}
+#[test] fn standard_tableau_content() {
+	assert_eq!(StandardTableau::from(vec![
+		vec![1,2,3],
+		vec![4,5,6]
+	]).content_1(), vec![1 ; 6]);
+}
+impl StandardTableau {
+	pub fn new() -> StandardTableau {
+		StandardTableau {
+			refer : Tableau::new()
+		}
+	}
+
+	pub fn from(v : Vec<Vec<usize>>) -> StandardTableau {
+		let tableau = StandardTableau {
+			refer : Tableau::from(v)
+		};
+
+		if let Err(s) = tableau.check() {
+			panic!("StandardTableau: {}", s);
+		}
+		tableau
+	}
+
+	pub fn transpose(&self) -> StandardTableau {
+		StandardTableau {
+			refer : Tableau {
+				refer : Filling(self.pre_transpose())
+			}
+		}
+	}
+}
+impl StandardTableau { // convert -- similiarly
+	pub fn to_tableau(self) -> Tableau {
+		self.refer
+	}
+
+	pub fn to_skew_tableau(self) -> SkewTableau {
+		self.to_tableau().to_skew_tableau()
+	}
+
+	pub fn to_filling(self) -> Filling {
+		self.to_tableau().to_filling()
+	}
+
+	pub fn to_numbering(self) -> Numbering {
+		self.to_filling().to_numbering()
+	}
+}
+impl fmt::Display for StandardTableau {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		self.refer.fmt(f)
+    }
+}
+
+// ------------------------------------------------------
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct SkewTableau(VecTail<Vec<Option<usize>>>);
 impl MathClass for SkewTableau {
 	// ? too complicated
@@ -675,7 +808,8 @@ impl SkewTableau {
 			Diagram::from(self.0.iter_finite().map(|v| {v.iter().count()}).collect()),
 		)
 	}
-
+}
+impl SkewTableau { // convert -- similiarly
 	pub fn to_tableau(self) -> Tableau {
 		Tableau::from(
 			self.0.into_iter_finite().map(|v| {
