@@ -1,3 +1,5 @@
+fn main() {}
+/*
 #[allow(unused_imports)]
 use young_tableaux::{
 	Diagram, SkewDiagram, // + Partition
@@ -35,3 +37,4 @@ fn main() {
 		tmp_v
 	};
 }
+*/

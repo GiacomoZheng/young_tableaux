@@ -7,7 +7,7 @@ use std::iter::{repeat};
 use std::fmt;
 
 #[derive(Eq, Clone)]
-pub(super) struct VecTail<T : PartialEq> {
+pub struct VecTail<T : PartialEq> {
 	heads : Vec<T>,
 	tail : T,
 	length : usize,
@@ -153,7 +153,37 @@ impl<T : Ord> PartialOrd for VecTail<T> {
 	assert!(inf_1 <= inf_2);
 	assert!(inf_3 < inf_2);
 }
-
+impl<T : PartialEq + Copy> VecTail<Vec<T>> {
+	pub fn pre_transpose(&self) -> VecTail<Vec<T>> {
+		let mut v : Vec<Vec<T>> = Vec::new();
+		for index in 0..self[0].len() {
+			let mut tmp_v = Vec::new();
+			for row in self.iter() {
+				if index < row.len() {
+					tmp_v.push(row[index]);
+				} else {
+					break;
+				}
+			}
+			v.push(tmp_v);
+		}
+		VecTail::from(v, Vec::new())
+	}
+}
+#[test] fn pre_transpose() {
+	assert_eq!(
+		VecTail::from(vec![
+			vec![   None, Some(1), Some(2)],
+			vec![   None, Some(2)],
+			vec![Some(2)],
+		], Vec::new()).pre_transpose(),
+		VecTail::from(vec![
+			vec![   None,   None, Some(2)],
+			vec![Some(1), Some(2)],
+			vec![Some(2)],
+		], Vec::new())
+	)
+}
 impl<T : PartialEq + fmt::Debug> fmt::Debug for VecTail<T> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "({}{:?}{})", self.iter_finite().fold(String::new(), |acc, e| {format!("{}{:?}, ", acc, e)}), self.tail, "...")
@@ -200,137 +230,4 @@ impl<T : PartialEq + Clone> IndexMut<usize> for VecTail<T> {
 	list[3] = 1;
 	assert_eq!(list[3], 1);
 	assert_eq!(list.length, 4);
-}
-
-// -----------------------------------------------------
-
-#[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Clone)]
-pub(super) struct Pair<T : PartialEq + Ord>(pub T, pub T);
-#[test] fn pair_order() {
-	assert!(Pair(1, 2) < Pair(2, 1));
-	assert!(Pair(2, 1) < Pair(2, 2));
-	assert!(Pair(2, 2) == Pair(2, 2));
-}
-impl<T : PartialEq + Ord> Pair<T> {
-	pub fn from((index, value) : (T, T)) -> Pair<T> {
-		Pair(index, value)
-	}
-
-	pub fn rev(self) -> Pair<T> {
-		Pair(self.1, self.0)
-	}
-}
-
-// -----------------------------------------------------
-
-///   --- n ---
-/// |  ■ ■ ■ ■
-/// m  ■ ■ ■ ■
-/// |  ■ ■ ■ ■
-#[derive(PartialEq)]
-pub(super) struct Layout {
-	pub m : usize,
-	pub n : usize,
-}
-impl fmt::Debug for Layout {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "{} × {}", self.m, self.n)
-	}
-}
-impl fmt::Display for Layout {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "{}",
-			format!("{}\n", "■ ".repeat(self.n)).as_str().repeat(self.m)
-		)
-    }
-}
-#[test] fn display_layout() {
-	let l = Layout {m : 3, n : 2};
-	assert_eq!(format!("{}", l), "■ ■ \n■ ■ \n■ ■ \n");
-}
-impl Layout {
-	pub fn index_of(&self, row : usize, col : usize) -> usize {
-		col + row * self.n
-	}
-
-	pub fn col(&self, index : usize) -> usize {
-		index % self.n
-	}
-	pub fn row(&self, index : usize) -> usize {
-		index / self.n
-	}
-
-	pub fn west_one(&self, index : usize) -> Option<usize> {
-		if index % self.n == 0 {
-			None
-		} else {
-			Some(index - 1)
-		}
-	}
-	#[allow(dead_code)]
-	pub fn east_one(&self, index : usize) -> Option<usize> {
-		if index % self.n == self.n - 1 {
-			None
-		} else {
-			Some(index + 1)
-		}
-	}
-	pub fn north_one(&self, index : usize) -> Option<usize> {
-		if index < self.n {
-			None
-		} else {
-			Some(index - self.n)
-		}
-	}
-	pub fn south_one(&self, index : usize) -> Option<usize> {
-		if index >= self.m * self.n - self.n {
-			None
-		} else {
-			Some(index + self.n)
-		}
-	}
-
-	pub fn southwest_one(&self, index : usize) -> Option<usize> {
-		if let Some(south_one) = self.south_one(index) {
-			self.west_one(south_one)
-		} else {
-			None
-		}
-	}
-
-	pub fn transpose(&self) -> Layout {
-		Layout {m : self.n, n : self.m}
-	}
-	pub fn transpose_index(&self, index : usize) -> usize {
-		self.transpose().index_of(self.col(index), self.row(index))
-	}
-}
-#[test] fn coordinate() {
-	let layout = Layout {m : 3, n : 2};
-	// println!("{}", layout);
-	assert_eq!(layout.index_of(0, 0), 0);
-	assert_eq!(layout.index_of(0, 1), 1);
-	assert_eq!(layout.index_of(2, 1), 5);
-	for index in 0..(layout.m * layout.n) {
-		assert_eq!(layout.index_of(layout.row(index), layout.col(index)), index);
-
-		assert_eq!(layout.transpose().transpose_index(layout.transpose_index(index)), index);
-	}
-
-	assert_eq!(None, layout.south_one(4));
-	assert_eq!(None, layout.south_one(5));
-	assert_eq!(None, layout.north_one(0));
-	assert_eq!(None, layout.north_one(1));
-	assert_eq!(None, layout.west_one(0));
-	assert_eq!(None, layout.west_one(2));
-	assert_eq!(None, layout.west_one(4));
-	assert_eq!(None, layout.east_one(1));
-	assert_eq!(None, layout.east_one(3));
-	assert_eq!(None, layout.east_one(5));
-}
-
-// -----------------------------------------------------
-pub trait MathClass {
-	/// criteria for a math concept
-	fn check(&self) -> Result<(), String>;
 }

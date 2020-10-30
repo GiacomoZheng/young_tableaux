@@ -1,4 +1,4 @@
-use std::cmp::{PartialOrd, Ordering};
+use std::cmp::{PartialOrd};
 
 pub fn is_weakly_decreasing<T : PartialOrd>(v : &Vec<T>) -> Result<(), &'static str> {
 	if !v.is_empty() {
@@ -63,16 +63,4 @@ pub fn replace_greatest_predecessor<T : PartialOrd + Copy>(x : T, v : &mut Vec<T
 		}
 	}
 	None
-}
-
-use std::ops::Range;
-/// ? I'm not sure about that
-pub fn compare<Idx : PartialOrd>(range : &Range<Idx>, k : Idx) -> Ordering {
-	if k < range.start {
-		Ordering::Less
-	} else if k >= range.end {
-		Ordering::Greater
-	} else {
-		Ordering::Equal
-	}
 }
